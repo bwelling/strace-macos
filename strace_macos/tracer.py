@@ -365,7 +365,7 @@ class Tracer:
         # We use plain function names (no underscores) which are the libc wrappers
         # that all programs call, regardless of compilation flags
         for syscall_def in self.registry.get_all_syscalls():
-            target.BreakpointCreateByName(syscall_def.name)
+            target.BreakpointCreateByName(syscall_def.name, "libsystem_kernel.dylib")
 
     def _trace_loop(self, process: lldb.SBProcess) -> int:
         """Main tracing loop.
