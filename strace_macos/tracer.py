@@ -361,11 +361,27 @@ class Tracer:
         Args:
             target: LLDB target
         """
-        # Set breakpoints on all syscalls registered in the registry
-        # We use plain function names (no underscores) which are the libc wrappers
-        # that all programs call, regardless of compilation flags
+        # Limit search to the libsystem dylibs containing syscall wrappers;
+        # scanning all loaded modules is slow.
+        module_list = self.lldb.SBFileSpecList()
+        for dylib in (
+            "libsystem_kernel.dylib",
+            "libsystem_c.dylib",
+            "libsystem_pthread.dylib",
+            "libsystem_malloc.dylib",
+            "libsystem_platform.dylib",
+            "libsystem_info.dylib",
+            "libcopyfile.dylib",
+        ):
+            module_list.Append(self.lldb.SBFileSpec(dylib))
+        comp_unit_list = self.lldb.SBFileSpecList()
         for syscall_def in self.registry.get_all_syscalls():
-            target.BreakpointCreateByName(syscall_def.name, "libsystem_kernel.dylib")
+            target.BreakpointCreateByName(
+                syscall_def.name,
+                self.lldb.eFunctionNameTypeFull,
+                module_list,
+                comp_unit_list,
+            )
 
     def _trace_loop(self, process: lldb.SBProcess) -> int:
         """Main tracing loop.
