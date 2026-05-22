@@ -544,33 +544,10 @@ class Tracer:
         if not event:
             return
 
-        # Extract return value from return register
-        ret_reg = frame.FindRegister(self.arch.return_register)
-        if ret_reg and ret_reg.IsValid():
-            ret_value = ret_reg.GetValueAsUnsigned()
-            # Convert to signed if negative (syscalls return -errno on error)
-            if ret_value >= 0x8000000000000000:  # Sign bit set
-                signed_ret = int(ret_value) - 0x10000000000000000
-            else:
-                signed_ret = int(ret_value)
-
-            # Check if syscall has a custom return decoder
-            syscall_def = self.registry.lookup_by_name(event.syscall_name)
-            if syscall_def and syscall_def.return_decoder and signed_ret >= 0:
-                # Use custom return decoder
-                event.return_value = syscall_def.return_decoder(
-                    signed_ret, event.raw_args, no_abbrev=self.no_abbrev
-                )
-            elif not self.no_abbrev and signed_ret < 0:
-                # Apply errno decoding if enabled and return is an error
-                event.return_value = decode_errno(signed_ret)
-            else:
-                event.return_value = signed_ret
-        else:
-            event.return_value = "?"
+        # Decode return value
+        event.return_value = self._decode_return_value(frame, event)
 
         # Decode output parameters if syscall succeeded
-        # Only decode output params if return value indicates success (>= 0)
         if isinstance(event.return_value, int) and event.return_value >= 0:
             syscall_def = self.registry.lookup_by_name(event.syscall_name)
             if syscall_def:
@@ -578,6 +555,64 @@ class Tracer:
 
         # Write the complete event
         self._write_event(event)
+
+    def _decode_return_value(self, frame: lldb.SBFrame, event: SyscallEvent) -> str | int:
+        """Decode syscall return value from register.
+
+        Args:
+            frame: LLDB stack frame
+            event: Syscall event with syscall name and raw args
+
+        Returns:
+            Decoded return value (int or string like "?" or "-1 ENOENT")
+        """
+        ret_reg = frame.FindRegister(self.arch.return_register)
+        if not ret_reg or not ret_reg.IsValid():
+            return "?"
+
+        # Convert to signed
+        ret_value = ret_reg.GetValueAsUnsigned()
+        signed_ret = (
+            int(ret_value) - 0x10000000000000000
+            if ret_value >= 0x8000000000000000
+            else int(ret_value)
+        )
+
+        # Check if syscall has a custom return decoder
+        syscall_def = self.registry.lookup_by_name(event.syscall_name)
+        if syscall_def and syscall_def.return_decoder and signed_ret >= 0:
+            return syscall_def.return_decoder(signed_ret, event.raw_args, no_abbrev=self.no_abbrev)
+
+        # macOS libc wrappers return -1 on error and store errno in TLS
+        if signed_ret == -1 and not self.no_abbrev:
+            errno_value = self._read_errno(frame)
+            return decode_errno(errno_value) if errno_value is not None else "-1"
+
+        return signed_ret
+
+    def _read_errno(self, frame: lldb.SBFrame) -> int | None:
+        """Read errno from thread-local storage via __error().
+
+        Args:
+            frame: LLDB stack frame at syscall return
+
+        Returns:
+            errno value, or None if reading failed
+        """
+        options = self.lldb.SBExpressionOptions()
+        options.SetTrapExceptions(False)  # noqa: FBT003
+        options.SetUnwindOnError(False)  # noqa: FBT003
+        options.SetIgnoreBreakpoints(True)  # noqa: FBT003
+        options.SetTimeoutInMicroSeconds(100000)  # 100ms timeout
+
+        # The errno macro expands to (*__error()); cast since the expression
+        # evaluator has no debug info for the return type
+        result = frame.EvaluateExpression("*(int *)__error()", options)
+        if not result.IsValid() or result.GetError().Fail():
+            return None
+
+        errno_value = result.GetValueAsSigned()
+        return errno_value if errno_value > 0 else None
 
     def _extract_args(
         self, frame: lldb.SBFrame, syscall_name: str

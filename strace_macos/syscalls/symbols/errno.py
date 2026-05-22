@@ -117,24 +117,20 @@ ERRNO_MAP: dict[int, tuple[str, str]] = {
 }
 
 
-def decode_errno(value: int) -> str:
-    """Decode errno return value to symbolic name with description.
+def decode_errno(errno_num: int) -> str:
+    """Format a failed syscall return as "-1 NAME (description)".
+
+    On macOS, libc wrappers return -1 on error and store the errno value in
+    thread-local storage (read via __error()).
 
     Args:
-        value: Return value from syscall (typically -1 to -106 for errors)
+        errno_num: errno value read from the traced thread
 
     Returns:
-        Symbolic representation like "-1 ENOENT (No such file or directory)"
-        or just the numeric value if not an error or unknown errno
+        Symbolic representation like "-1 ENOENT (No such file or directory)",
+        or "-1" if the errno value is unknown
     """
-    if value >= 0:
-        return str(value)
-
-    # Negative values are errors - negate to get errno number
-    errno_num = -value
     if errno_num in ERRNO_MAP:
         name, desc = ERRNO_MAP[errno_num]
         return f"-1 {name} ({desc})"
-
-    # Unknown errno
-    return str(value)
+    return "-1"
