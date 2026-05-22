@@ -135,7 +135,7 @@ class TermiosParam(StructParamBase):
             if lflag_names:
                 result["c_lflag"] = "|".join(lflag_names)
 
-        return result if result else {"c_iflag": "0"}
+        return result or {"c_iflag": "0"}
 
     def decode_struct(
         self, process: Any, address: int, *, no_abbrev: bool = False

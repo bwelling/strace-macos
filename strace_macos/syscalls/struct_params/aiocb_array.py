@@ -118,7 +118,7 @@ class AiocbArrayParam(Param):
             except (ValueError, TypeError):
                 summaries.append("?")
 
-        return summaries if summaries else None
+        return summaries or None
 
     def _read_aiocb(self, process: Any, address: int) -> str | None:
         """Read and format a single aiocb structure.

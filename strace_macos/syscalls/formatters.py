@@ -41,7 +41,7 @@ class SyscallEvent:
 
 def _format_symbolic_or_value(arg: IntArg | FlagsArg) -> str | int:
     """Format IntArg or FlagsArg: prefer symbolic name if available, else value."""
-    return arg.symbolic if arg.symbolic else arg.value
+    return arg.symbolic or arg.value
 
 
 class JSONFormatter:
