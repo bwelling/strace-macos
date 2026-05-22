@@ -148,7 +148,7 @@ class MsghdrParam(StructParamBase):
             buf_str = self._read_iovec_buffer(process, iov.iov_base, iov.iov_len)
             iov_list.append({"iov_base": buf_str, "iov_len": iov.iov_len})
 
-        return iov_list if iov_list else None
+        return iov_list or None
 
     def _read_iovec_buffer(self, process: lldb.SBProcess, address: int, size: int) -> str:
         """Read and format an iovec buffer.

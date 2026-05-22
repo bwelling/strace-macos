@@ -31,7 +31,7 @@ class IntArg(SyscallArg):
 
     def __str__(self) -> str:
         """Return string representation."""
-        return self.symbolic if self.symbolic else str(self.value)
+        return self.symbolic or str(self.value)
 
 
 class UnsignedArg(SyscallArg):
@@ -115,7 +115,7 @@ class FlagsArg(SyscallArg):
 
     def __str__(self) -> str:
         """Return string representation."""
-        return self.symbolic if self.symbolic else f"0x{self.value:x}"
+        return self.symbolic or f"0x{self.value:x}"
 
 
 class StructArg(SyscallArg):

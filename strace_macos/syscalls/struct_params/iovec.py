@@ -109,7 +109,7 @@ class IovecParam(Param):
             buf_str = self._read_iovec_buffer(process, iov.iov_base, iov.iov_len)
             iov_list.append({"iov_base": buf_str, "iov_len": iov.iov_len})
 
-        return iov_list if iov_list else None
+        return iov_list or None
 
     @staticmethod
     def _read_iovec_buffer(process: Any, address: int, size: int) -> str:

@@ -149,7 +149,7 @@ class KeventParam(Param):
 
             kevent_list.append(entry)
 
-        return kevent_list if kevent_list else None
+        return kevent_list or None
 
 
 def decode_kevent_filter(value: int) -> str:
@@ -332,7 +332,7 @@ class Kevent64Param(Param):
 
             kevent_list.append(entry)
 
-        return kevent_list if kevent_list else None
+        return kevent_list or None
 
 
 class PollfdStruct(ctypes.Structure):
@@ -420,7 +420,7 @@ class PollfdParam(Param):
                 }
             )
 
-        return pollfd_list if pollfd_list else None
+        return pollfd_list or None
 
     @staticmethod
     def _decode_events(value: int) -> str:
