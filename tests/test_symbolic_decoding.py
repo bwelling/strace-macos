@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import unittest
 
 from strace_macos.__main__ import main
+from strace_macos.syscalls.symbols import decode_errno
 from tests.base import StraceTestCase
 from tests.fixtures import helpers
 
@@ -232,6 +234,13 @@ class TestSymbolicDecoding(StraceTestCase):
             f"Failed syscalls: {failed_syscalls}"
         )
 
+        # REGRESSION: errno 1 (EPERM, from setuid(0) as non-root) must decode
+        # as EPERM, not collapse to a bare -1
+        setuid_lines = [line for line in failed_syscalls if line.startswith("setuid(")]
+        assert any("EPERM" in line for line in setuid_lines), (
+            f"setuid(0) should fail with EPERM. Found: {setuid_lines}"
+        )
+
     def test_errno_return_value_formatting_json(self) -> None:
         """Test that error returns show errno in JSON output."""
         output_file = self.temp_dir / "trace.jsonl"
@@ -292,7 +301,19 @@ class TestSymbolicDecoding(StraceTestCase):
         )
 
 
-if __name__ == "__main__":
-    import unittest
+class TestDecodeErrno(unittest.TestCase):
+    """Unit tests for decode_errno formatting."""
 
+    def test_eperm(self) -> None:
+        """REGRESSION: errno 1 must decode as EPERM, not as a bare -1."""
+        assert decode_errno(1) == "-1 EPERM (Operation not permitted)"
+
+    def test_enoent(self) -> None:
+        assert decode_errno(2) == "-1 ENOENT (No such file or directory)"
+
+    def test_unknown_errno(self) -> None:
+        assert decode_errno(9999) == "-1"
+
+
+if __name__ == "__main__":
     unittest.main()

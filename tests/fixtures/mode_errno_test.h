@@ -47,6 +47,13 @@ int mode_errno_test(int argc, char *argv[]) {
     /* Expected to fail */
   }
 
+  /* Try to become root - will fail with EPERM (errno 1) when not root.
+   * Regression test: errno 1 must decode as EPERM, not as a bare -1. */
+  int setuid_ret = setuid(0);
+  if (setuid_ret == -1) {
+    /* Expected to fail */
+  }
+
   return 0;
 }
 

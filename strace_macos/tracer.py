@@ -583,36 +583,15 @@ class Tracer:
         if syscall_def and syscall_def.return_decoder and signed_ret >= 0:
             return syscall_def.return_decoder(signed_ret, event.raw_args, no_abbrev=self.no_abbrev)
 
-        # Handle error returns
-        if not self.no_abbrev and signed_ret < 0:
-            return self._decode_error_return(frame, signed_ret)
+        # macOS libc wrappers return -1 on error and store errno in TLS
+        if signed_ret == -1 and not self.no_abbrev:
+            errno_value = self._read_errno(frame)
+            return decode_errno(errno_value) if errno_value is not None else "-1"
 
         return signed_ret
 
-    def _decode_error_return(self, frame: lldb.SBFrame, signed_ret: int) -> str | int:
-        """Decode error return value (macOS -1 with errno in TLS).
-
-        Args:
-            frame: LLDB stack frame
-            signed_ret: Signed return value (negative)
-
-        Returns:
-            Decoded error string like "-1 ENOENT" or "?" on failure
-        """
-        if signed_ret == -1:
-            errno_value = self._read_errno(frame)
-            if errno_value is not None:
-                return decode_errno(-errno_value)
-            return "?"
-
-        # Other negative values (shouldn't happen on macOS libc wrappers)
-        return decode_errno(signed_ret)
-
     def _read_errno(self, frame: lldb.SBFrame) -> int | None:
-        """Read errno value from thread-local storage via __error().
-
-        On macOS, errno is stored in thread-local storage. The __error() function
-        returns a pointer to the current thread's errno variable.
+        """Read errno from thread-local storage via __error().
 
         Args:
             frame: LLDB stack frame at syscall return
@@ -620,45 +599,20 @@ class Tracer:
         Returns:
             errno value, or None if reading failed
         """
-        try:
-            # Create expression options
-            options = self.lldb.SBExpressionOptions()
+        options = self.lldb.SBExpressionOptions()
+        options.SetTrapExceptions(False)  # noqa: FBT003
+        options.SetUnwindOnError(False)  # noqa: FBT003
+        options.SetIgnoreBreakpoints(True)  # noqa: FBT003
+        options.SetTimeoutInMicroSeconds(100000)  # 100ms timeout
 
-            options.SetTrapExceptions(False)  # noqa: FBT003
-            options.SetUnwindOnError(False)  # noqa: FBT003
-            options.SetIgnoreBreakpoints(True)  # noqa: FBT003
-            options.SetTimeoutInMicroSeconds(100000)  # 100ms timeout
-
-            # Try multiple ways to read errno
-            # First try the errno macro directly (most reliable)
-            errno_expr = frame.EvaluateExpression("errno", options)
-
-            # If that fails, try __error()
-            if not errno_expr.IsValid() or errno_expr.GetError().Fail():
-                errno_expr = frame.EvaluateExpression("*__error()", options)
-
-            # Check if evaluation succeeded
-            if not errno_expr.IsValid():
-                return None
-
-            error = errno_expr.GetError()
-            if error.Fail():
-                return None
-
-            # Get the errno value
-            errno_value = errno_expr.GetValueAsUnsigned()
-
-            # Sanity check: errno should be in valid range (1-107 on macOS)
-            #
-            # Ref: https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/errno.h#L270
-            if errno_value > 0 and errno_value <= 107:
-                return int(errno_value)
-
-            return None  # noqa: TRY300
-
-        except Exception:  # noqa: BLE001
-            # If anything goes wrong, fail gracefully
+        # The errno macro expands to (*__error()); cast since the expression
+        # evaluator has no debug info for the return type
+        result = frame.EvaluateExpression("*(int *)__error()", options)
+        if not result.IsValid() or result.GetError().Fail():
             return None
+
+        errno_value = result.GetValueAsSigned()
+        return errno_value if errno_value > 0 else None
 
     def _extract_args(
         self, frame: lldb.SBFrame, syscall_name: str
